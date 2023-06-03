@@ -1,0 +1,143 @@
+import numpy as np
+import pandas as pd
+import pickle
+import cv2
+import pickle
+from sklearn import svm
+from scipy.signal import find_peaks
+import os; import glob
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from google.colab.patches import cv2_imshow
+from PIL import Image
+import os.path
+from os import path
+import json
+import random
+import re
+def atoi(text):
+    return int(text) if text.isdigit() else text
+def natural_keys(text):
+    return [ atoi(c) for c in re.split(r'(\d+)', text) ]      
+
+fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+ds_addr= '/content/drive/MyDrive/dataset/original/'
+data_addr='/content/tmp/'
+dest_addr='/content/drive/MyDrive/openpose/square/full_f10/'
+# folder=['Coffee_room_01','Home_01','Home_02','Lecture_room','Office','ur_fall','ur_adl','mine','mine_fall' ,'Office2']
+folder=['Office2']
+iteration=10
+####################################################################################
+
+for i,dataset in (enumerate(folder)):
+    videos = glob.glob(ds_addr+dataset+'/*.avi')
+    videos.sort(key=natural_keys)
+
+    for j,video in (enumerate(videos)):
+        # if (j%10)!=0:
+        #   continue
+        if j!=40:
+          continue
+        
+        !rm -rf '/content/tmp/'
+        !mkdir '/content/tmp/'
+        !rm -rf "/content/output/"
+        !mkdir "/content/output/"
+
+        vid=video.replace(ds_addr+dataset+'/', "")
+        vid=vid.replace(".avi","")
+        target_folder=dest_addr+dataset
+        ext0=target_folder+"/{}.avi".format(vid)                    
+        # if path.exists(ext0):
+        #   continue
+
+        print(dataset,j)
+        capture = cv2.VideoCapture( video )
+        w1=int(capture.get(3))
+        w2=int(capture.get(4))
+        num_frame = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps=capture.get(cv2.CAP_PROP_FPS)
+        out = cv2.VideoWriter('{}/tmp.avi'.format(data_addr),fourcc, fps, (w1,w2),True)
+        for i in range(0, num_frame):
+            # print(num_frame)
+            ret, frame = capture.read()
+            # frame = cv2.flip(frame, 1)
+            cv2.imwrite(data_addr+'/{}_{}.jpg'.format(vid,i),frame)
+            out.write(frame)
+        out.release()
+        !cd openpose && ./build/examples/openpose/openpose.bin --video /content/tmp/tmp.avi \
+                        --write_json /content/output/ --display 0 --write_video /content/output/openpose.avi    
+        ############################################################################################################
+        sorse = glob.glob('/content/output'+'/*.json')
+        sorse.sort(key=natural_keys)
+        images=glob.glob(data_addr+'/*.jpg')
+        images.sort(key=natural_keys)      
+        for itr in range(iteration):
+          if itr<8:
+            continue
+            out = cv2.VideoWriter('{}/video_{}_{}.avi'.format(target_folder,j,itr),fourcc, fps, (112,112),True)
+            for k,key in enumerate(sorse):
+                image=images[k]
+                img=cv2.imread(image)
+                
+                f = open(key,)
+                data=json.load(f)
+                
+                if data.get('people')==[]:
+                    x=0; y=0
+                    img = cv2.resize(img, (112,112), interpolation = cv2.INTER_AREA)
+                    out.write(img)
+                    f.close()
+                    continue
+                people=data.get('people')[0]
+                keypoints=np.array(people.get('pose_keypoints_2d'))
+                keypoints=np.reshape(keypoints,(-1,3))
+    #####################################################################################333333333
+                neck=keypoints[1,:]; midhip=keypoints[8,:]
+                Rshoulder=keypoints[2,:]; Rwrist=keypoints[4,:]; Lshoulder=keypoints[5,:]; Lwrist=keypoints[7,:]
+                Rhip=keypoints[9,:]; Rankle=keypoints[11,:]; Lhip=keypoints[12,:]; Lankle=keypoints[14,:];
+                x1=0; y1=0; x2=0; y2=0
+
+                if midhip[-1]>0 and Rankle[-1]>0 and Lankle[-1]>0 and itr==0:           #HIP DOWN
+                  x1=int(Lankle[0])-50; y1=int(midhip[1])+10; x2=int(Rankle[0])+50; y2=int(Rankle[1])+10
+
+                if neck[-1]>0 and Rshoulder[-1]>0 and Lshoulder[-1]>0 and  itr==1:                  # NECK up
+                  x1=int(Lshoulder[0])-60; y1=int(neck[1])-80;  x2=int(Rshoulder[0])+60; y2=int(Rshoulder[1])
+
+                if neck[-1]>0 and midhip[-1]>0 and Rwrist[-1]>0 and Lwrist[-1]>0 and itr==2:   #BETWEEN NECK AND HIP
+                  x1=int(Lwrist[0])-150; y1=int(neck[1])+30; x2=int(Rwrist[0])+150; y2=int(midhip[1])
+
+                if neck[-1]>0 and midhip[-1]>0 and midhip[-1]>0 and Rshoulder[-1]>0 and Lshoulder[-1]>0 and itr==3:   #BETWEEN NECK AND HIP    THINER
+                  x1=int(Lshoulder[0])-50; y1=int(neck[1])+30; x2=int(Rshoulder[0])+50; y2=int(midhip[1])
+
+                if Rshoulder[-1]>0 and Rwrist[-1]>0 and itr==4:     # RIGHT ARM
+                  x1=int(Rshoulder[0])-20; y1=int(Rshoulder[1]); x2=int(Rwrist[0])+20; y2=int(Rwrist[1])
+
+                if Lshoulder[-1]>0 and Lwrist[-1]>0 and itr==5:      # LEFT ARM
+                  x1=int(Lshoulder[0])+20; y1=int(Lshoulder[1]); x2=int(Lwrist[0])-20; y2=int(Lwrist[1])
+
+                if Rhip[-1]>0 and Rankle[-1]>0 and itr==6:     # RIGHT leg
+                  x1=int(Rhip[0])-20; y1=int(Rhip[1]); x2=int(Rankle[0])+20; y2=int(Rankle[1])
+
+                if Lhip[-1]>0 and Lankle[-1]>0 and itr==7:      # LEFT leg
+                  x1=int(Lhip[0])+20; y1=int(Lhip[1]); x2=int(Lankle[0])-20; y2=int(Lankle[1])
+
+                if midhip[-1]>0 and itr==8:       # RIGHT sid
+                  x1=int(midhip[0]); y1=int(midhip[1])-50; x2=int(midhip[0])+40; y2=int(midhip[1])+50
+
+                if midhip[-1]>0 and itr==9:       # left sid
+                  x1=int(midhip[0])-40; y1=int(midhip[1])-50; x2=int(midhip[0]); y2=int(midhip[1])+50
+
+                x=(x1+x2)//2; y=(y1+y2)//2
+                for g in range(2000):
+                    ccc=np.random.randint(0,abs(x2-x1)+1)-(abs(x2-x1)//2); ccc2=np.random.randint(0,abs(y2-y1)+1)-(abs(y2-y1)//2);
+                    c1=np.random.randint(256); c2=np.random.randint(256); c3=np.random.randint(256);
+                    
+                    cv2.circle(img,(x+ccc,y+ccc2),5,(c1,c1,c1),-1)  
+                    # cv2.rectangle(img,(x1-ccc,y1-ccc2),(x2-ccc+1,y2-ccc2+1),(c1,c2,c3),-1)
+
+                img = cv2.resize(img, (112,112), interpolation = cv2.INTER_AREA)
+                # gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                out.write(img)
+                f.close()
+        # out.release()
